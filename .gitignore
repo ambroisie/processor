@@ -1,0 +1,6 @@
+# Nix files
+/result
+/.pre-commit-config.yaml
+
+# Rust files
+/target
