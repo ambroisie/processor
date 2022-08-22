@@ -3,5 +3,58 @@
 version = 3
 
 [[package]]
+name = "fpdec"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fccc0ed8c7061c33e00a60e799e9360147b012cb3a2f8d94fef16451fb10249"
+dependencies = [
+ "fpdec-core",
+ "fpdec-macros",
+]
+
+[[package]]
+name = "fpdec-core"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2307f18645911f994b44e565fe007f5f348d90fbd4beea310ab5d9c52786ba25"
+
+[[package]]
+name = "fpdec-macros"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d57281129373dd325fd295cc6a4e7b8f6f880bf8cd5622f2c6bedd85bdc43761"
+dependencies = [
+ "fpdec-core",
+ "quote",
+]
+
+[[package]]
+name = "proc-macro2"
+version = "1.0.43"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a2ca2c61bc9f3d74d2886294ab7b9853abd9c1ad903a3ac7815c58989bb7bab"
+dependencies = [
+ "unicode-ident",
+]
+
+[[package]]
 name = "processor"
 version = "0.1.0"
+dependencies = [
+ "fpdec",
+]
+
+[[package]]
+name = "quote"
+version = "1.0.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbe448f377a7d6961e30f5955f9b8d106c3f5e449d493ee1b125c1d43c2b5179"
+dependencies = [
+ "proc-macro2",
+]
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4f5b37a154999a8f3f98cc23a628d850e154479cd94decf3414696e12e31aaf"
