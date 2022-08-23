@@ -1,5 +1,8 @@
 //! Define all supported transactions.
-use crate::core::{ClientId, TxAmount, TxId};
+use crate::{
+    core::{ClientId, TxAmount, TxId},
+    ParseError,
+};
 
 use serde::Deserialize;
 
@@ -40,8 +43,7 @@ struct TransactionRecord<'a> {
 }
 
 impl TryFrom<TransactionRecord<'_>> for Transaction {
-    // FIXME: use an actual error type.
-    type Error = String;
+    type Error = ParseError;
 
     fn try_from(value: TransactionRecord<'_>) -> Result<Self, Self::Error> {
         let TransactionRecord {
@@ -53,17 +55,17 @@ impl TryFrom<TransactionRecord<'_>> for Transaction {
 
         let transaction = match type_ {
             "deposit" => {
-                let amount = amount.ok_or("Missing amount for transaction")?;
+                let amount = amount.ok_or(ParseError::MissingAmount)?;
                 Transaction::Deposit(Deposit { client, tx, amount })
             }
             "withdrawal" => {
-                let amount = amount.ok_or("Missing amount for transaction")?;
+                let amount = amount.ok_or(ParseError::MissingAmount)?;
                 Transaction::Withdrawal(Withdrawal { client, tx, amount })
             }
             "dispute" => Transaction::Dispute(Dispute { client, tx }),
             "resolve" => Transaction::Resolve(Resolve { client, tx }),
             "chargeback" => Transaction::Chargeback(Chargeback { client, tx }),
-            _ => return Err(format!("Unkown transaction type '{}'", type_)),
+            _ => return Err(ParseError::UnknownTx(type_.into())),
         };
         Ok(transaction)
     }
