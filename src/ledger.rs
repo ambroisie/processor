@@ -1,12 +1,16 @@
 //! A ledger implementation to track all transactions.
 
-use crate::{ClientId, Deposit, LedgerError, Transaction, TxAmount, TxId, Withdrawal};
+use crate::{
+    Chargeback, ClientId, Deposit, Dispute, LedgerError, Resolve, Transaction, TxAmount, TxId,
+    Withdrawal,
+};
 
 /// A ledger of accounts, which processes transactions one at a time.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Ledger {
     accounts: std::collections::HashMap<ClientId, AccountInfo>,
-    reversible_transactions: std::collections::HashMap<TxId, (ClientId, TxAmount)>,
+    transaction_amounts: std::collections::HashMap<(ClientId, TxId), TxAmount>,
+    transaction_state: std::collections::HashMap<(ClientId, TxId), TxState>,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -14,6 +18,71 @@ pub struct AccountInfo {
     available_funds: TxAmount,
     held_funds: TxAmount,
     locked: bool,
+}
+
+/// Represent the state of a transaction. Here are the possible transitions:
+///
+/// ```graphviz
+/// Processed -> Disputed
+/// Disputed -> Resolved
+/// Disputed -> ChargedBack
+/// ```
+///
+/// The starting state is `Processed`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TxState {
+    /// A transaction was just accepted.
+    Processed,
+    /// A transaction dispute has been processed.
+    Disputed,
+    /// A transaction disputed was resolved.
+    Resolved,
+    /// A transaction disputed was chargedback.
+    ChargedBack,
+}
+
+impl TxState {
+    pub fn apply_dispute(
+        &mut self,
+        account: &mut AccountInfo,
+        amount: TxAmount,
+    ) -> LedgerResult<()> {
+        if *self != Self::Processed {
+            return Err(LedgerError::AlreadyDisputed);
+        }
+
+        account.apply_dispute(amount)?;
+        *self = Self::Disputed;
+        Ok(())
+    }
+
+    pub fn apply_resolution(
+        &mut self,
+        account: &mut AccountInfo,
+        amount: TxAmount,
+    ) -> LedgerResult<()> {
+        if *self != Self::Disputed {
+            return Err(LedgerError::NotDisputed);
+        }
+
+        account.apply_resolution(amount)?;
+        *self = Self::Resolved;
+        Ok(())
+    }
+
+    pub fn apply_chargeback(
+        &mut self,
+        account: &mut AccountInfo,
+        amount: TxAmount,
+    ) -> LedgerResult<()> {
+        if *self != Self::Disputed {
+            return Err(LedgerError::NotDisputed);
+        }
+
+        account.apply_chargeback(amount)?;
+        *self = Self::ChargedBack;
+        Ok(())
+    }
 }
 
 type LedgerResult<T> = Result<T, LedgerError>;
@@ -46,19 +115,55 @@ impl Ledger {
             Transaction::Withdrawal(Withdrawal { client, tx, amount }) => {
                 self.delta(client, tx, -amount)
             }
-            _ => todo!(),
+            Transaction::Dispute(tx) => self.dispute(tx),
+            Transaction::Resolve(tx) => self.resolve(tx),
+            Transaction::Chargeback(tx) => self.chargeback(tx),
         }
     }
 
     fn delta(&mut self, client: ClientId, tx: TxId, delta: TxAmount) -> LedgerResult<()> {
         let account = self.accounts.entry(client).or_default();
-        let new_balance = account.available_funds() + delta;
-        if new_balance < TxAmount::ZERO {
-            return Err(LedgerError::NotEnoughFunds);
-        }
-        account.available_funds = new_balance;
-        self.reversible_transactions.insert(tx, (client, delta));
+        account.apply_delta(delta)?;
+        self.transaction_amounts.insert((client, tx), delta);
+        self.transaction_state
+            .insert((client, tx), TxState::Processed);
         Ok(())
+    }
+
+    fn dispute(&mut self, Dispute { client, tx }: Dispute) -> LedgerResult<()> {
+        let (current_state, account, amount) = self.get_past_transaction_info(client, tx)?;
+        current_state.apply_dispute(account, amount)
+    }
+
+    fn resolve(&mut self, Resolve { client, tx }: Resolve) -> LedgerResult<()> {
+        let (current_state, account, amount) = self.get_past_transaction_info(client, tx)?;
+        current_state.apply_resolution(account, amount)
+    }
+
+    fn chargeback(&mut self, Chargeback { client, tx }: Chargeback) -> LedgerResult<()> {
+        let (current_state, account, amount) = self.get_past_transaction_info(client, tx)?;
+        current_state.apply_chargeback(account, amount)
+    }
+
+    fn get_past_transaction_info(
+        &mut self,
+        client: ClientId,
+        tx: TxId,
+    ) -> LedgerResult<(&mut TxState, &mut AccountInfo, TxAmount)> {
+        let current_state = self
+            .transaction_state
+            .get_mut(&(client, tx))
+            .ok_or(LedgerError::UnknownTx(client, tx))?;
+        let account = self
+            .accounts
+            .get_mut(&client)
+            .expect("a processed transaction should have its account recorded");
+        let amount = self
+            .transaction_amounts
+            .get(&(client, tx))
+            .cloned()
+            .expect("a processed transaction should have its amount recorded");
+        Ok((current_state, account, amount))
     }
 }
 
@@ -81,6 +186,48 @@ impl AccountInfo {
     /// The totals funds on an account, i.e: available funds and held funds.
     pub fn total_funds(&self) -> TxAmount {
         self.available_funds + self.held_funds
+    }
+
+    pub fn apply_delta(&mut self, delta: TxAmount) -> LedgerResult<()> {
+        self.check_frozen()?;
+        let new_balance = self.available_funds() + delta;
+        if new_balance < TxAmount::ZERO {
+            return Err(LedgerError::NotEnoughFunds);
+        }
+        self.available_funds = new_balance;
+        Ok(())
+    }
+
+    pub fn apply_dispute(&mut self, delta: TxAmount) -> LedgerResult<()> {
+        self.check_frozen()?;
+        // FIXME: should we check for negative funds?
+        self.available_funds -= delta;
+        self.held_funds += delta;
+        Ok(())
+    }
+
+    pub fn apply_resolution(&mut self, delta: TxAmount) -> LedgerResult<()> {
+        self.check_frozen()?;
+        // FIXME: should we check for negative funds?
+        self.available_funds += delta;
+        self.held_funds -= delta;
+        Ok(())
+    }
+
+    pub fn apply_chargeback(&mut self, delta: TxAmount) -> LedgerResult<()> {
+        self.check_frozen()?;
+        // FIXME: should we check for negative funds?
+        self.held_funds -= delta;
+        self.locked = true;
+        Ok(())
+    }
+
+    fn check_frozen(&self) -> LedgerResult<()> {
+        if self.is_locked() {
+            Err(LedgerError::FrozenAccount)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -182,5 +329,76 @@ mod test {
         ))
         .unwrap_err();
         assert_eq!(error, LedgerError::NotEnoughFunds);
+    }
+
+    #[test]
+    fn dispute_deposit() {
+        let ledger = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+        ))
+        .unwrap();
+        check_ledger(
+            &ledger,
+            expect![[r#"
+                client,available,held,total,locked
+                1,0.0,1.0,1.0,false
+            "#]],
+        );
+    }
+
+    #[test]
+    fn dispute_withdrawal() {
+        let ledger = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "withdrawal,      1,  2,   1.0",
+            "dispute,         1,  2",
+        ))
+        .unwrap();
+        check_ledger(
+            &ledger,
+            expect![[r#"
+                client,available,held,total,locked
+                1,1.0,-1.0,0.0,false
+            "#]],
+        );
+    }
+
+    #[test]
+    fn resolve_dispute() {
+        let ledger = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "resolve,         1,  1",
+        ))
+        .unwrap();
+        check_ledger(
+            &ledger,
+            expect![[r#"
+                client,available,held,total,locked
+                1,1.0,0.0,1.0,false
+            "#]],
+        );
+    }
+
+    #[test]
+    fn chargeback_dispute() {
+        let ledger = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "chargeback,      1,  1",
+        ))
+        .unwrap();
+        check_ledger(
+            &ledger,
+            expect![[r#"
+                client,available,held,total,locked
+                1,0.0,0.0,0.0,true
+            "#]],
+        );
     }
 }
