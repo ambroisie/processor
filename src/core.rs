@@ -30,3 +30,39 @@ pub struct TxAmount(#[serde_as(as = "DisplayFromStr")] pub Decimal);
 impl TxAmount {
     pub const ZERO: Self = Self(Dec!(0));
 }
+
+impl std::ops::Add<TxAmount> for TxAmount {
+    type Output = Self;
+
+    fn add(self, rhs: TxAmount) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl std::ops::AddAssign<TxAmount> for TxAmount {
+    fn add_assign(&mut self, rhs: TxAmount) {
+        *self = *self + rhs;
+    }
+}
+
+impl std::ops::Sub<TxAmount> for TxAmount {
+    type Output = Self;
+
+    fn sub(self, rhs: TxAmount) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl std::ops::SubAssign<TxAmount> for TxAmount {
+    fn sub_assign(&mut self, rhs: TxAmount) {
+        *self = *self - rhs;
+    }
+}
+
+impl std::ops::Neg for TxAmount {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(-self.0)
+    }
+}
