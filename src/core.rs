@@ -1,5 +1,6 @@
 //! Core types used in the processing of payments.
 
+use fpdec::{Dec, Decimal};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 
@@ -24,4 +25,8 @@ pub struct TxId(pub u32);
 #[serde_as]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(transparent)]
-pub struct TxAmount(#[serde_as(as = "DisplayFromStr")] pub fpdec::Decimal);
+pub struct TxAmount(#[serde_as(as = "DisplayFromStr")] pub Decimal);
+
+impl TxAmount {
+    pub const ZERO: Self = Self(Dec!(0));
+}
