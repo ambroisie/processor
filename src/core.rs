@@ -12,12 +12,24 @@ use serde_with::{serde_as, DisplayFromStr};
 #[serde(transparent)]
 pub struct ClientId(pub u16);
 
+impl std::fmt::Display for ClientId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Transactions are identified by a globally unique id. 32 bit is sufficient for our puposes.
 #[derive(
     Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
 )]
 #[serde(transparent)]
 pub struct TxId(pub u32);
+
+impl std::fmt::Display for TxId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 /// Amounts are represented as exact decimals, up to four places past the decimal.
 /// For ease of implementation, make use of [fpdec::Decimal] instead of implementing a custom
@@ -29,6 +41,12 @@ pub struct TxAmount(#[serde_as(as = "DisplayFromStr")] pub Decimal);
 
 impl TxAmount {
     pub const ZERO: Self = Self(Dec!(0));
+}
+
+impl std::fmt::Display for TxAmount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 impl std::ops::Add<TxAmount> for TxAmount {
