@@ -502,4 +502,97 @@ mod test {
         "#]],
         );
     }
+
+    #[test]
+    fn unknown_client_and_transaction() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         2,  2",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::UnknownTx(ClientId(2), TxId(2)));
+    }
+
+    #[test]
+    fn unknown_client() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         2,  1",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::UnknownTx(ClientId(2), TxId(1)));
+    }
+
+    #[test]
+    fn unknown_transaction() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  2",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::UnknownTx(ClientId(1), TxId(2)));
+    }
+
+    #[test]
+    fn double_dispute() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "dispute,         1,  1",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::AlreadyDisputed);
+    }
+
+    #[test]
+    fn dispute_after_resolution() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "resolve,         1,  1",
+            "dispute,         1,  1",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::AlreadyDisputed);
+    }
+
+    #[test]
+    fn dispute_after_chargeback() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "chargeback,      1,  1",
+            "dispute,         1,  1",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::AlreadyDisputed);
+    }
+
+    #[test]
+    fn resolution_no_dispute() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "resolve,         1,  1",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::NotDisputed);
+    }
+
+    #[test]
+    fn chargeback_no_dispute() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "chargeback,      1,  1",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::NotDisputed);
+    }
 }
