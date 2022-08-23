@@ -401,4 +401,105 @@ mod test {
             "#]],
         );
     }
+
+    #[test]
+    fn dispute_then_withdrawal() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "withdrawal,      1,  2,   1.0",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::NotEnoughFunds);
+    }
+
+    #[test]
+    fn dispute_then_resolution() {
+        let ledger = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "resolve,         1,  1",
+        ))
+        .unwrap();
+        check_ledger(
+            &ledger,
+            expect![[r#"
+                client,available,held,total,locked
+                1,1.0,0.0,1.0,false
+            "#]],
+        );
+    }
+
+    #[test]
+    fn dispute_then_chargeback() {
+        let ledger = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "chargeback,      1,  1",
+        ))
+        .unwrap();
+        check_ledger(
+            &ledger,
+            expect![[r#"
+                client,available,held,total,locked
+                1,0.0,0.0,0.0,true
+            "#]],
+        );
+    }
+
+    #[test]
+    fn dispute_then_resolution_then_withdrawal() {
+        let ledger = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "resolve,         1,  1",
+            "withdrawal,      1,  2,   1.0",
+        ))
+        .unwrap();
+        check_ledger(
+            &ledger,
+            expect![[r#"
+                client,available,held,total,locked
+                1,0.0,0.0,0.0,false
+            "#]],
+        );
+    }
+
+    #[test]
+    fn dispute_then_chargeback_then_withdrawal() {
+        let error = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "chargeback,      1,  1",
+            "withdrawal,      1,  2,   1.0",
+        ))
+        .unwrap_err();
+        assert_eq!(error, LedgerError::FrozenAccount);
+    }
+
+    #[test]
+    fn dispute_then_deposit_then_dispute_then_resolve_then_chargeback() {
+        let ledger = process_transactions(inline_csv!(
+            "type,       client, tx, amount",
+            "deposit,         1,  1,   1.0",
+            "dispute,         1,  1",
+            "deposit,         1,  2,   1.0",
+            "dispute,         1,  2",
+            "resolve,         1,  2",
+            "chargeback,      1,  1",
+        ))
+        .unwrap();
+        check_ledger(
+            &ledger,
+            expect![[r#"
+            client,available,held,total,locked
+            1,1.0,0.0,1.0,true
+        "#]],
+        );
+    }
 }
